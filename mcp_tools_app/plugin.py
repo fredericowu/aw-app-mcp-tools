@@ -60,9 +60,11 @@ class McpToolsAppPlugin:
         if state and (current is None or
                       (not marker.exists() and current == empty)):
             _write_document(path, state)
-        elif current is None or (state is None and current == empty):
+        elif current is None:
             write_mcp_json(ctx.package_dir, getattr(ctx, "config", {}) or {})
 
+        # With no durable state, an existing empty file can be a manual edit.
+        # Saved Settings are applied only to a missing file or on explicit save.
         doc = _remember(ctx.package_dir)
         marker.touch(exist_ok=True)
         ctx.routes.register(routes_mod.build_routes())
