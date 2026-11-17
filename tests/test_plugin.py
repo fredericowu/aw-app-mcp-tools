@@ -6,100 +6,105 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from mcp_tools_app.plugin import McpToolsAppPlugin, build_mcp_servers, write_mcp_json  # noqa: E402
+from mcp_tools_app.plugin import McpToolsAppPlugin, build_mcp_servers  # noqa: E402
 
-PLAYWRIGHT_DEFAULT = {
-    "playwright": {
-        "enabled": True,
-        "type": "stdio",
-        "command": "npx",
-        "args": ["-y", "@playwright/mcp@0.0.77", "--cdp-endpoint", "http://aw-app-browser:9223"],
-    },
-}
+CUSTOM = {"custom": {"type": "stdio", "command": "my-tool", "args": ["--custom"]}}
+EMPTY = {"mcpServers": {}}
 
 
-def test_build_mcp_servers_returns_config_mcp_servers_verbatim():
-    servers = build_mcp_servers({"mcpServers": PLAYWRIGHT_DEFAULT})
-    assert servers == PLAYWRIGHT_DEFAULT
+@pytest.fixture(autouse=True)
+def isolated_home(tmp_path, monkeypatch):
+    monkeypatch.setenv("AW_WORKSPACE_HOME", str(tmp_path / "home"))
 
 
-def test_build_mcp_servers_missing_key_falls_back_to_default():
-    # ctx.config at activate() time is un-defaulted (config_with_defaults is
-    # an API-response-layer concern) — a fresh install's config is {}, so
-    # this fallback is what keeps a first install from shipping empty.
-    assert build_mcp_servers({}) == PLAYWRIGHT_DEFAULT
-
-
-def test_build_mcp_servers_explicit_empty_object_yields_no_servers():
-    # An explicit {} (the user cleared every server) is respected, distinct
-    # from a missing key.
-    assert build_mcp_servers({"mcpServers": {}}) == {}
-
-
-def test_build_mcp_servers_lets_user_add_an_arbitrary_tool():
-    config = {
-        "mcpServers": {
-            **PLAYWRIGHT_DEFAULT,
-            "my-custom-tool": {"type": "stdio", "command": "my-tool", "args": []},
-        }
-    }
-    servers = build_mcp_servers(config)
-    assert set(servers) == {"playwright", "my-custom-tool"}
-
-
-def test_write_mcp_json_writes_package_dir_mcp_json(tmp_path):
-    write_mcp_json(str(tmp_path), {"mcpServers": PLAYWRIGHT_DEFAULT})
-    written = json.loads((tmp_path / "mcp.json").read_text())
-    assert set(written["mcpServers"]) == {"playwright"}
-
-
-def _async(coro):
+def run(coro):
     return asyncio.run(coro)
 
 
-def _fake_ctx(tmp_path, config):
-    (tmp_path / "aw-app.json").write_text(json.dumps({"contributes": {}}))
-    return SimpleNamespace(
-        package_dir=str(tmp_path),
-        config=config,
-        commands=SimpleNamespace(install_system_cli=lambda *a, **k: None),
-        routes=SimpleNamespace(register=lambda *a, **k: None),
-    )
+def context(tmp_path, config, shipped=False, version="1.0.0"):
+    package = tmp_path / "package"
+    package.mkdir(exist_ok=True)
+    (package / "aw-app.json").write_text(json.dumps({"version": version, "contributes": {}}))
+    if shipped:
+        (package / ".mcp-tools-initialized").unlink(missing_ok=True)
+        (package / "mcp.json").write_text(json.dumps(EMPTY))
+    return SimpleNamespace(package_dir=str(package), config=config,
+                           routes=SimpleNamespace(register=lambda *a: None))
 
 
-def test_activate_writes_mcp_json_from_config(tmp_path):
+def read(ctx):
+    return json.loads((Path(ctx.package_dir) / "mcp.json").read_text())
+
+
+@pytest.mark.parametrize("config", [None, {}, {"mcpServers": None}, EMPTY])
+def test_unconfigured_activation_has_no_upstreams(tmp_path, config):
+    assert build_mcp_servers(config) == {}
+    ctx = context(tmp_path, config)
+    run(McpToolsAppPlugin().activate(ctx))
+    assert read(ctx) == EMPTY
+
+
+def test_shipped_defaults_are_empty_and_install_no_helpers():
+    manifest = json.loads((ROOT / "aw-app.json").read_text())
+    assert manifest["config_schema"]["properties"]["mcpServers"]["default"] == {}
+    assert not manifest["contributes"].get("system_clis")
+    assert json.loads((ROOT / "mcp.json").read_text()) == EMPTY
+
+
+@pytest.mark.parametrize("shipped", [False, True])
+def test_explicit_custom_configuration_survives_lifecycle(tmp_path, shipped):
+    ctx = context(tmp_path, {"mcpServers": CUSTOM}, shipped)
     plugin = McpToolsAppPlugin()
-    ctx = _fake_ctx(tmp_path, {"mcpServers": PLAYWRIGHT_DEFAULT})
-    _async(plugin.activate(ctx))
-    written = json.loads((tmp_path / "mcp.json").read_text())
-    assert set(written["mcpServers"]) == {"playwright"}
+    run(plugin.activate(ctx))
+    assert read(ctx) == {"mcpServers": CUSTOM}
+    run(plugin.deactivate())
+    run(McpToolsAppPlugin().activate(ctx))
+    assert read(ctx) == {"mcpServers": CUSTOM}
 
 
-def test_activate_with_fresh_empty_config_still_ships_playwright(tmp_path):
-    # Regression: a fresh install's ctx.config is {} (un-defaulted) — must
-    # not write an empty mcp.json.
+@pytest.mark.parametrize("manual", [EMPTY, {"mcpServers": CUSTOM}])
+def test_manual_edit_survives_reactivation_and_package_upgrade(tmp_path, manual):
+    ctx = context(tmp_path, {"mcpServers": {"old": {"command": "old"}}}, True)
     plugin = McpToolsAppPlugin()
-    ctx = _fake_ctx(tmp_path, {})
-    _async(plugin.activate(ctx))
-    written = json.loads((tmp_path / "mcp.json").read_text())
-    assert set(written["mcpServers"]) == {"playwright"}
+    run(plugin.activate(ctx))
+    path = Path(ctx.package_dir) / "mcp.json"
+    body = json.dumps(manual) + "\n"
+    path.write_text(body)
+    before = path.stat().st_mtime_ns
+    run(McpToolsAppPlugin().activate(ctx))
+    assert path.read_text() == body
+    assert path.stat().st_mtime_ns == before
+    # A real update deactivates the plugin then replaces the package.
+    run(plugin.deactivate())
+    ctx = context(tmp_path, ctx.config, shipped=True, version="1.0.0")
+    run(McpToolsAppPlugin().activate(ctx))
+    assert read(ctx) == manual
+    # Reinstall after the package is removed also restores durable state.
+    path.unlink()
+    run(McpToolsAppPlugin().activate(ctx))
+    assert read(ctx) == manual
 
 
-def test_on_config_saved_rewrites_mcp_json_to_match_new_config(tmp_path):
+def test_existing_manual_custom_file_wins_on_first_activation(tmp_path):
+    ctx = context(tmp_path, EMPTY)
+    (Path(ctx.package_dir) / "mcp.json").write_text(json.dumps({"mcpServers": CUSTOM}))
+    run(McpToolsAppPlugin().activate(ctx))
+    assert read(ctx) == {"mcpServers": CUSTOM}
+
+
+@pytest.mark.parametrize("saved", [EMPTY, {"mcpServers": CUSTOM}])
+def test_settings_save_replaces_file_and_durable_state(tmp_path, saved):
+    ctx = context(tmp_path, EMPTY, True)
     plugin = McpToolsAppPlugin()
-    ctx = _fake_ctx(tmp_path, {"mcpServers": PLAYWRIGHT_DEFAULT})
-    _async(plugin.activate(ctx))
-    assert set(json.loads((tmp_path / "mcp.json").read_text())["mcpServers"]) == {"playwright"}
-
-    ctx.config = {
-        "mcpServers": {
-            **PLAYWRIGHT_DEFAULT,
-            "extra": {"type": "stdio", "command": "extra-tool", "args": []},
-        }
-    }
-    _async(plugin.on_config_saved(ctx))
-    written = json.loads((tmp_path / "mcp.json").read_text())
-    assert set(written["mcpServers"]) == {"playwright", "extra"}
+    run(plugin.activate(ctx))
+    ctx.config = saved
+    run(plugin.on_config_saved(ctx))
+    assert read(ctx) == saved
+    ctx = context(tmp_path, {}, True, version="2.0.0")
+    run(McpToolsAppPlugin().activate(ctx))
+    assert read(ctx) == saved

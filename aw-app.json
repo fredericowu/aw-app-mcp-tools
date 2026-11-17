@@ -3,7 +3,7 @@
   "id": "mcp-tools",
   "name": "MCP Tools",
   "version": "0.11.0",
-  "description": "Installs MCP helper tools for Agentic Workspace, starting with a ready-to-use Playwright MCP config for shared browser automation.",
+  "description": "A blank, configurable placeholder for workspace MCP upstreams.",
   "tier": "inprocess",
   "requires_ui_refresh": true,
   "category": "Tools",
@@ -23,18 +23,11 @@
     }
   },
   "permissions": [
-    "commands:install",
     "fs:workspace-data",
     "routes:register",
     "ui:code"
   ],
   "contributes": {
-    "system_clis": [
-      {
-        "name": "aw-playwright-mcp",
-        "installer": "scripts/install_playwright_mcp.sh"
-      }
-    ],
     "routes": [
       {
         "prefix": "/api/apps/mcp-tools"
@@ -54,20 +47,8 @@
       "mcpServers": {
         "type": "object",
         "title": "MCP servers",
-        "description": "Written verbatim to this app's mcp.json \u2014 add, remove, or edit any MCP tool definition here (same shape as a .mcp.json's mcpServers). Ships with Playwright pre-configured for the shared AW browser.",
-        "default": {
-          "playwright": {
-            "enabled": true,
-            "type": "stdio",
-            "command": "npx",
-            "args": [
-              "-y",
-              "@playwright/mcp@0.0.77",
-              "--cdp-endpoint",
-              "http://aw-app-browser:9223"
-            ]
-          }
-        }
+        "description": "Written verbatim to this app's mcp.json. Add, remove, or edit MCP server definitions; no servers are preconfigured.",
+        "default": {}
       }
     },
     "required": []

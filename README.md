@@ -1,24 +1,13 @@
 # MCP Tools
 
-MCP Tools helps an AW Workspace manage tool connections that agents can use. It starts with a ready Playwright setup for browser automation and lets the workspace maintain tool definitions in one place.
+MCP Tools is a blank, configurable placeholder for workspace MCP upstreams.
+It ships `{"mcpServers": {}}` and installs no browser or helper CLI.
 
-## What It Does
+Open the workspace Settings to add explicit server definitions. Saving applies
+that exact configuration, including an empty object, and reloads the gateway.
 
-- Installs helper tooling for workspace agent integrations.
-- Provides a default Playwright tool connection for the shared browser.
-- Lets users edit tool definitions from the workspace UI.
-- Keeps tool configuration available for the workspace gateway to load.
-
-## Why Use It
-
-Use this app when agents need extra tools beyond their terminal. It is useful for browser automation, shared tool setup, and keeping agent tool configuration editable without rebuilding the workspace.
-
-## How To Use It
-
-Install the app with the workspace gateway enabled. Open the app UI to review or adjust tool definitions. Once saved, agents can use the available tools from their normal sessions.
-
-## What It Delivers
-
-The app gives AW Workspace a configurable tool layer for agents. It makes useful integrations easier to add, inspect, and maintain.
-
-<!-- fleet migration B4: follow-up no-op to prove the comment + workflow_run merge paths -->
+Activation preserves existing configuration files. Manual edits are captured on
+activation and deactivation. A durable copy under
+`AW_WORKSPACE_HOME/data/mcp-tools/config-state.json` restores configuration after
+package updates or reinstalls. Settings saves deliberately replace that copy.
+The gateway reads a regular `mcp.json` in the installed package directory.
