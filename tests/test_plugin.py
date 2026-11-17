@@ -56,9 +56,8 @@ def test_shipped_defaults_are_empty_and_install_no_helpers():
     assert json.loads((ROOT / "mcp.json").read_text()) == EMPTY
 
 
-@pytest.mark.parametrize("shipped", [False, True])
-def test_explicit_custom_configuration_survives_lifecycle(tmp_path, shipped):
-    ctx = context(tmp_path, {"mcpServers": CUSTOM}, shipped)
+def test_explicit_custom_configuration_survives_lifecycle(tmp_path):
+    ctx = context(tmp_path, {"mcpServers": CUSTOM})
     plugin = McpToolsAppPlugin()
     run(plugin.activate(ctx))
     assert read(ctx) == {"mcpServers": CUSTOM}
@@ -108,3 +107,21 @@ def test_settings_save_replaces_file_and_durable_state(tmp_path, saved):
     ctx = context(tmp_path, {}, True, version="2.0.0")
     run(McpToolsAppPlugin().activate(ctx))
     assert read(ctx) == saved
+
+
+@pytest.mark.parametrize("manual", [EMPTY, {"mcpServers": CUSTOM}])
+def test_existing_manual_file_beats_stale_settings_on_first_activation(tmp_path, manual):
+    ctx = context(tmp_path, {"mcpServers": {"old": {"command": "old"}}})
+    path = Path(ctx.package_dir) / "mcp.json"
+    body = json.dumps(manual, separators=(",", ":")) + "\n"
+    path.write_text(body)
+    before = path.stat().st_mtime_ns
+    plugin = McpToolsAppPlugin()
+    run(plugin.activate(ctx))
+    assert path.read_text() == body
+    assert path.stat().st_mtime_ns == before
+    state = tmp_path / "home" / "data" / "mcp-tools" / "config-state.json"
+    assert json.loads(state.read_text()) == manual
+    # Saved settings become authoritative only on an explicit Settings save.
+    run(plugin.on_config_saved(ctx))
+    assert read(ctx) == ctx.config
