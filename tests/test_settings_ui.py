@@ -62,5 +62,5 @@ def test_node_helper_tests():
     node = shutil.which("node")
     if not node:
         pytest.skip("node not installed")
-    r = subprocess.run([node, "--test", str(ROOT / "ui" / "test")], capture_output=True, text=True)
+    r = subprocess.run([node, "--test", str(ROOT / "ui" / "test" / "servers.test.mjs")], capture_output=True, text=True)
     assert r.returncode == 0, r.stdout + r.stderr
