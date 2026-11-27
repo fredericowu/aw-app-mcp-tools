@@ -35,11 +35,29 @@
     ],
     "frontend": {
       "mode": "component",
-      "bundle": "ui/dist/mcp-tools.js"
+      "bundle": "ui/dist/mcp-tools.js",
+      "slots": [
+        "core.window.body:mcp-tools.settings"
+      ]
     },
     "mcp": {
       "reload_on_save": true
-    }
+    },
+    "windows": [
+      {
+        "id": "mcp-tools.settings",
+        "title": "MCP Tools",
+        "body": {
+          "type": "component"
+        }
+      }
+    ],
+    "settings_panels": [
+      {
+        "id": "mcp-tools.settings",
+        "window": "mcp-tools.settings"
+      }
+    ]
   },
   "config_schema": {
     "type": "object",
@@ -47,8 +65,110 @@
       "mcpServers": {
         "type": "object",
         "title": "MCP servers",
-        "description": "Written verbatim to this app's mcp.json. Add, remove, or edit MCP server definitions; no servers are preconfigured.",
-        "default": {}
+        "description": "Written verbatim to this app's mcp.json. Edit in Settings > Apps > MCP Tools (Servers or JSON); no servers are preconfigured.",
+        "default": {},
+        "additionalProperties": {
+          "type": "object",
+          "title": "MCP server",
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": [
+                "stdio",
+                "http",
+                "gateway"
+              ]
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "command": {
+              "type": "string",
+              "minLength": 1
+            },
+            "args": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "env": {
+              "type": "object"
+            },
+            "cwd": {
+              "type": "string"
+            },
+            "url": {
+              "type": "string",
+              "minLength": 1
+            },
+            "headers": {
+              "type": "object"
+            }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "type": {
+                    "enum": [
+                      "http",
+                      "gateway"
+                    ]
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              },
+              "then": {
+                "required": [
+                  "url"
+                ]
+              }
+            },
+            {
+              "if": {
+                "not": {
+                  "required": [
+                    "type"
+                  ]
+                }
+              },
+              "then": {
+                "anyOf": [
+                  {
+                    "required": [
+                      "command"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "url"
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "type": {
+                    "const": "stdio"
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              },
+              "then": {
+                "required": [
+                  "command"
+                ]
+              }
+            }
+          ]
+        }
       }
     },
     "required": []
